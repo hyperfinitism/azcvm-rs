@@ -1,1 +1,1 @@
-# azcvm-rs
+# Azure CVM Attestation Library for Rust

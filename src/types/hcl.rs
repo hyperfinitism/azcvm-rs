@@ -3,8 +3,7 @@
 use crate::error::Error;
 use serde::{Deserialize, Serialize};
 
-pub mod report {
-	pub const REPORT_PAYLOAD_SIZE: usize = 1184;
+pub mod hwreport {
     pub const SEV_SNP_REPORT_SIZE: usize = 1184;
     pub const TDX_REPORT_SIZE: usize = 1024;
 }
@@ -91,12 +90,13 @@ pub struct HclReportHeader {
 }
 
 impl HclReportHeader {
-    pub const BYTE_LEN: usize = 32;
+    /// Size of the HCL report header (sum of all header fields)
+    pub const HEADER_SIZE: usize = 32;
 
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
-        if bytes.len() != Self::BYTE_LEN {
+        if bytes.len() != Self::HEADER_SIZE {
             return Err(Error::InvalidSize {
-                expected: Self::BYTE_LEN,
+                expected: Self::HEADER_SIZE,
                 actual: bytes.len(),
             });
         }
@@ -110,8 +110,8 @@ impl HclReportHeader {
         })
     }
 
-    pub fn as_bytes(&self) -> [u8; Self::BYTE_LEN] {
-        let mut out = [0u8; Self::BYTE_LEN];
+    pub fn as_bytes(&self) -> [u8; Self::HEADER_SIZE] {
+        let mut out = [0u8; Self::HEADER_SIZE];
         out[0..4].copy_from_slice(&self.signature.to_le_bytes());
         out[4..8].copy_from_slice(&self.version.to_le_bytes());
         out[8..12].copy_from_slice(&self.report_size.to_le_bytes());
@@ -133,12 +133,13 @@ pub struct HclRuntimeData {
 }
 
 impl HclRuntimeData {
-    pub const FIXED_LEN: usize = 20;
+    /// Size of all fields before `runtime_claims`
+    pub const RUNTIME_DATA_HEADER_SIZE: usize = 20;
 
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
-        if bytes.len() < Self::FIXED_LEN {
+        if bytes.len() < Self::RUNTIME_DATA_HEADER_SIZE {
             return Err(Error::InvalidSize {
-                expected: Self::FIXED_LEN,
+                expected: Self::RUNTIME_DATA_HEADER_SIZE,
                 actual: bytes.len(),
             });
         }
@@ -151,7 +152,7 @@ impl HclRuntimeData {
         let report_type = ReportType::try_from(report_raw)?;
         let hash_type = HashType::try_from(hash_raw)?;
 
-        let search_region = &bytes[Self::FIXED_LEN..];
+        let search_region = &bytes[Self::RUNTIME_DATA_HEADER_SIZE..];
 
         let nul_pos = search_region
             .iter()
@@ -192,16 +193,24 @@ pub struct HclAttestationReport {
 }
 
 impl HclAttestationReport {
+    pub const REPORT_PAYLOAD_SIZE: usize = 1184;
+
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
-        let header = HclReportHeader::from_bytes(&bytes[0..HclReportHeader::BYTE_LEN])?;
-        let payload_end = HclReportHeader::BYTE_LEN + report::REPORT_PAYLOAD_SIZE;
+        if bytes.len() < HclReportHeader::HEADER_SIZE {
+            return Err(Error::InvalidSize {
+                expected: HclReportHeader::HEADER_SIZE,
+                actual: bytes.len(),
+            });
+        }
+        let header = HclReportHeader::from_bytes(&bytes[0..HclReportHeader::HEADER_SIZE])?;
+        let payload_end = HclReportHeader::HEADER_SIZE + Self::REPORT_PAYLOAD_SIZE;
         if bytes.len() < payload_end {
             return Err(Error::InvalidSize {
                 expected: payload_end,
                 actual: bytes.len(),
             });
         }
-        let report_payload = bytes[HclReportHeader::BYTE_LEN..payload_end].to_vec();
+        let report_payload = bytes[HclReportHeader::HEADER_SIZE..payload_end].to_vec();
         let runtime_data = HclRuntimeData::from_bytes(&bytes[payload_end..])?;
         Ok(Self {
             header,
